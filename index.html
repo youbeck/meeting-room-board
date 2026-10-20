@@ -270,9 +270,11 @@
           btn.disabled = true;
           btn.textContent = '不可預約';
         } else {
-          var isStart = selecting && selecting.roomId === room.id && selecting.start === h;
-          btn.className += isStart ? ' picked' : ' free';
-          btn.textContent = isStart ? '起點' : '可預約';
+          // 選取中：只有起點時標示起點；已選好終點（輸入資訊中）時，整段一起標示
+          var hasEnd = selecting && selecting.end !== undefined;
+          var picked = selecting && selecting.roomId === room.id && h >= selecting.start && (hasEnd ? h <= selecting.end : h === selecting.start);
+          btn.className += picked ? ' picked' : ' free';
+          btn.textContent = picked ? (hasEnd ? '預約中' : '起點') : '可預約';
           btn.addEventListener('click', function () { onFreeClick(room, h); });
         }
         td.appendChild(btn);
@@ -354,6 +356,8 @@
       }
     }
     hintError = '';
+    selecting.end = h;
+    render(); // 讓整段所選時段在輸入視窗後方一起變色
     openBook(room, selecting.start, h - selecting.start + 1);
   }
 
