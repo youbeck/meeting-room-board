@@ -106,13 +106,18 @@
 
 <dialog id="cancelDialog">
   <form method="dialog" id="cancelForm" novalidate>
-    <h2>取消預約</h2>
+    <h2>修改／刪除預約</h2>
     <p class="info" id="cancelInfo"></p>
-    <label>請輸入預約時的姓名<input id="cancelName" type="text" maxlength="30" autocomplete="off"></label>
+    <label>原預約人姓名（驗證用，須與預約時相符）<input id="cancelName" type="text" maxlength="30" autocomplete="off"></label>
+    <label>開始時間<select id="editStart"></select></label>
+    <label>結束時間<select id="editEnd"></select></label>
+    <label>姓名<input id="editName" type="text" maxlength="30" autocomplete="off"></label>
+    <label>會議主題<input id="editTopic" type="text" maxlength="60" autocomplete="off"></label>
     <p class="error" id="cancelError" role="alert"></p>
     <div class="actions">
       <button type="button" id="cancelClose">返回</button>
-      <button type="submit" class="danger">取消預約</button>
+      <button type="button" id="cancelDelete" class="danger">刪除預約</button>
+      <button type="submit" class="primary">儲存修改</button>
     </div>
   </form>
 </dialog>
@@ -258,7 +263,7 @@
           btn.className += ' booked';
           btn.appendChild(el('span', 'who', hit.b.name));
           btn.appendChild(el('span', 'topic', hit.b.topic));
-          btn.title = rangeText(hit.start, hit.b.hours) + ' ' + hit.b.name + '：' + hit.b.topic + '（點擊可取消）';
+          btn.title = rangeText(hit.start, hit.b.hours) + ' ' + hit.b.name + '：' + hit.b.topic + '（點擊可修改或刪除）';
           btn.addEventListener('click', function () { selecting = null; hintError = ''; render(); openCancel(hit.key); });
         } else if (isPast(current, h)) {
           btn.className += ' past';
@@ -278,7 +283,7 @@
     renderList(data);
   }
 
-  // ===== 預約列表（全部日期，可刪除）=====
+  // ===== 預約列表（全部日期，可修改／刪除）=====
   function renderList(data) {
     var wrap = document.getElementById('listWrap');
     wrap.textContent = '';
@@ -303,7 +308,7 @@
       tr.appendChild(el('td', '', b.name));
       tr.appendChild(el('td', '', b.topic));
       var act = el('td');
-      var del = el('button', 'del', '刪除');
+      var del = el('button', 'del', '修改／刪除');
       del.type = 'button';
       del.addEventListener('click', function () { openCancel(key); });
       act.appendChild(del);
@@ -391,31 +396,74 @@
   });
   document.getElementById('bookCancel').addEventListener('click', function () { bookDialog.close(); clearSelection(); });
 
-  // ===== 取消（網格與列表共用，以預約 key 定位）=====
+  // ===== 修改／刪除（網格與列表共用，以預約 key 定位；沿用 cancelDialog 的元素 id）=====
+  function fillHourSelect(sel, from, to, value) {
+    sel.textContent = '';
+    for (var h = from; h <= to; h++) {
+      var opt = el('option', '', hourLabel(h));
+      opt.value = String(h);
+      sel.appendChild(opt);
+    }
+    sel.value = String(value);
+  }
+
   function openCancel(key) {
     var b = load()[key];
     if (!b) { render(); return; }
     pending = { key: key };
     var p = key.split('|');
-    document.getElementById('cancelInfo').textContent = dateText(parseDateStr(p[0])) + ' ' + roomName(p[1]) + ' ' +
-      rangeText(parseInt(p[2], 10), b.hours) + '｜' + b.name + '：' + b.topic;
+    var start = parseInt(p[2], 10);
+    document.getElementById('cancelInfo').textContent = dateText(parseDateStr(p[0])) + ' ' + roomName(p[1]) + '（日期與會議室不可修改，要換請刪除重訂）';
     document.getElementById('cancelName').value = '';
+    fillHourSelect(document.getElementById('editStart'), HOURS[0], END_HOUR - 1, start);
+    fillHourSelect(document.getElementById('editEnd'), HOURS[0] + 1, END_HOUR, start + b.hours);
+    document.getElementById('editName').value = b.name;
+    document.getElementById('editTopic').value = b.topic;
     document.getElementById('cancelError').textContent = '';
     cancelDialog.showModal();
     document.getElementById('cancelName').focus();
   }
 
-  document.getElementById('cancelForm').addEventListener('submit', function (ev) {
-    ev.preventDefault();
+  // 刪除：姓名須與預約時相符
+  document.getElementById('cancelDelete').addEventListener('click', function () {
     var err = document.getElementById('cancelError');
-    var name = document.getElementById('cancelName').value.trim();
     var data = load();
     var key = pending.key;
     var b = data[key];
     if (!b) { cancelDialog.close(); render(); return; }
-    if (name !== b.name.trim()) { err.textContent = '姓名與預約時不符，預約已保留。'; return; }
+    if (document.getElementById('cancelName').value.trim() !== b.name.trim()) { err.textContent = '姓名與預約時不符，預約已保留。'; return; }
     delete data[key];
-    if (!save(data)) { err.textContent = '無法寫入瀏覽器儲存空間，取消未生效。'; return; }
+    if (!save(data)) { err.textContent = '無法寫入瀏覽器儲存空間，刪除未生效。'; return; }
+    cancelDialog.close();
+    render();
+  });
+
+  // 修改：姓名驗證通過後，可改開始／結束時間、姓名、主題（同一天、同一會議室）
+  document.getElementById('cancelForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var err = document.getElementById('cancelError');
+    var data = load();
+    var key = pending.key;
+    var old = data[key];
+    if (!old) { cancelDialog.close(); render(); return; }
+    if (document.getElementById('cancelName').value.trim() !== old.name.trim()) { err.textContent = '姓名與預約時不符，預約未修改。'; return; }
+    var name = document.getElementById('editName').value.trim();
+    var topic = document.getElementById('editTopic').value.trim();
+    if (!name || !topic) { err.textContent = '姓名與會議主題皆為必填。'; return; }
+    var p = key.split('|');
+    var oldStart = parseInt(p[2], 10);
+    var s = parseInt(document.getElementById('editStart').value, 10);
+    var e = parseInt(document.getElementById('editEnd').value, 10);
+    if (!(e > s) || s < HOURS[0] || e > END_HOUR) { err.textContent = '結束時間須晚於開始時間。'; return; }
+    var hours = e - s;
+    if ((s !== oldStart || hours !== old.hours) && isPast(parseDateStr(p[0]), s)) { err.textContent = '新的開始時段已過，無法修改。'; return; }
+    for (var h = s; h < e; h++) {
+      var hit = findBooking(data, p[0], p[1], h);
+      if (hit && hit.key !== key) { err.textContent = '新的時段與其他預約衝突，預約未修改。'; return; }
+    }
+    delete data[key];
+    data[p[0] + '|' + p[1] + '|' + s] = { name: name, topic: topic, hours: hours };
+    if (!save(data)) { err.textContent = '無法寫入瀏覽器儲存空間，修改未生效。'; return; }
     cancelDialog.close();
     render();
   });
