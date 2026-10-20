@@ -73,6 +73,7 @@
   <span class="date" id="dateLabel"></span>
   <button id="next" type="button">後一天 ▶</button>
   <button id="today" type="button">回到今天</button>
+  <button id="exportCsv" type="button">匯出 CSV</button>
 </div>
 
 <div class="legend">
@@ -472,6 +473,42 @@
     render();
   });
   document.getElementById('cancelClose').addEventListener('click', function () { cancelDialog.close(); });
+
+  // ===== 匯出 CSV：目前選定日期的預約（會議室、時段、預約人）=====
+  function csvCell(s) {
+    s = String(s);
+    if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; // 避免試算表把內容當公式執行
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  function exportCsv() {
+    var data = load();
+    var dStr = dateKey(current);
+    var rows = [];
+    Object.keys(data).forEach(function (key) {
+      var p = key.split('|');
+      if (p[0] !== dStr) return;
+      rows.push({ room: p[1], start: parseInt(p[2], 10), b: data[key] });
+    });
+    if (!rows.length) { hintError = '此日期沒有預約可匯出。'; renderHint(); return; }
+    rows.sort(function (a, b) { return a.room < b.room ? -1 : a.room > b.room ? 1 : a.start - b.start; });
+    var lines = [['會議室', '時段', '預約人'].map(csvCell).join(',')];
+    rows.forEach(function (r) {
+      lines.push([roomName(r.room), rangeText(r.start, r.b.hours), r.b.name].map(csvCell).join(','));
+    });
+    // 加上 BOM 讓 Excel 正確辨識 UTF-8 中文
+    var blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = '預約_' + dStr + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+    hintError = '';
+    renderHint();
+  }
+  document.getElementById('exportCsv').addEventListener('click', exportCsv);
 
   // ===== 日期切換 =====
   prevBtn.addEventListener('click', function () { current = prevWeekday(current); render(); });
