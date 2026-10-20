@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>會議室預約看板</title>
+<style>
+  :root {
+    --free: #d9f2e1; --free-border: #7bc895; --free-hover: #bfe8cd;
+    --booked: #cfe0fb; --booked-border: #6d97df; --booked-hover: #b8d0f7;
+    --past: #e4e4e4; --past-text: #8a8a8a;
+    --text: #222; --bg: #f5f6f8;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 16px; font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; background: var(--bg); color: var(--text); }
+  h1 { margin: 0 0 12px; font-size: 1.4rem; }
+  .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .toolbar .date { font-size: 1.1rem; font-weight: bold; min-width: 11em; text-align: center; }
+  button { font: inherit; cursor: pointer; }
+  .toolbar button { padding: 6px 12px; border: 1px solid #aaa; border-radius: 6px; background: #fff; }
+  .toolbar button:disabled { opacity: .4; cursor: not-allowed; }
+  .legend { display: flex; flex-wrap: wrap; gap: 12px; font-size: .85rem; margin-bottom: 8px; }
+  .legend span::before { content: ""; display: inline-block; width: 12px; height: 12px; margin-right: 4px; vertical-align: -1px; border: 1px solid #888; }
+  .legend .l-free::before { background: var(--free); }
+  .legend .l-booked::before { background: var(--booked); }
+  .legend .l-past::before { background: var(--past); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: separate; border-spacing: 4px; min-width: 760px; width: 100%; table-layout: fixed; }
+  th { font-size: .85rem; font-weight: normal; padding: 4px; }
+  th.room { width: 90px; font-weight: bold; text-align: left; }
+  td { padding: 0; height: 64px; }
+  .cell { width: 100%; height: 100%; padding: 4px; border-radius: 6px; border: 1px solid; font-size: .8rem; overflow: hidden; text-align: left; line-height: 1.3; }
+  .cell.free { background: var(--free); border-color: var(--free-border); }
+  .cell.free:hover { background: var(--free-hover); }
+  .cell.booked { background: var(--booked); border-color: var(--booked-border); }
+  .cell.booked:hover { background: var(--booked-hover); }
+  .cell.past { background: var(--past); border-color: #c8c8c8; color: var(--past-text); cursor: not-allowed; }
+  .cell .who { font-weight: bold; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .cell .topic { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .note { margin-top: 12px; font-size: .85rem; color: #555; }
+  dialog { border: 1px solid #888; border-radius: 10px; padding: 16px; width: min(92vw, 360px); }
+  dialog::backdrop { background: rgba(0,0,0,.4); }
+  dialog h2 { margin: 0 0 4px; font-size: 1.1rem; }
+  dialog .info { margin: 0 0 12px; font-size: .9rem; color: #444; }
+  dialog label { display: block; margin-bottom: 10px; font-size: .9rem; }
+  dialog input { display: block; width: 100%; margin-top: 4px; padding: 6px; font: inherit; border: 1px solid #aaa; border-radius: 4px; }
+  .error { min-height: 1.2em; margin: 0 0 8px; color: #c0392b; font-size: .85rem; }
+  .actions { display: flex; justify-content: flex-end; gap: 8px; }
+  .actions button { padding: 6px 14px; border: 1px solid #aaa; border-radius: 6px; background: #fff; }
+  .actions .primary { background: #2f6fdd; border-color: #2f6fdd; color: #fff; }
+  .actions .danger { background: #c0392b; border-color: #c0392b; color: #fff; }
+  @media (max-width: 600px) { body { padding: 10px; } .toolbar .date { min-width: 0; flex: 1 1 100%; order: -1; } }
+</style>
+</head>
+<body>
+<h1>會議室預約看板</h1>
+
+<div class="toolbar">
+  <button id="prev" type="button">◀ 前一天</button>
+  <span class="date" id="dateLabel"></span>
+  <button id="next" type="button">後一天 ▶</button>
+  <button id="today" type="button">回到今天</button>
+</div>
+
+<div class="legend">
+  <span class="l-free">可預約</span>
+  <span class="l-booked">已預約</span>
+  <span class="l-past">已過／不可預約</span>
+</div>
+
+<div class="scroll"><table id="grid" aria-label="會議室預約網格"></table></div>
+
+<p class="note">說明：預約資料僅存於本瀏覽器的 localStorage，不會跨使用者或裝置同步。取消時比對姓名僅為防止誤刪，並非安全機制。僅可預約今天起 14 天內的平日。</p>
+
+<dialog id="bookDialog">
+  <form method="dialog" id="bookForm" novalidate>
+    <h2>預約會議室</h2>
+    <p class="info" id="bookInfo"></p>
+    <label>姓名<input id="bookName" type="text" maxlength="30" autocomplete="off"></label>
+    <label>會議主題<input id="bookTopic" type="text" maxlength="60" autocomplete="off"></label>
+    <p class="error" id="bookError" role="alert"></p>
+    <div class="actions">
+      <button type="button" id="bookCancel">取消</button>
+      <button type="submit" class="primary">送出預約</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="cancelDialog">
+  <form method="dialog" id="cancelForm" novalidate>
+    <h2>取消預約</h2>
+    <p class="info" id="cancelInfo"></p>
+    <label>請輸入預約時的姓名<input id="cancelName" type="text" maxlength="30" autocomplete="off"></label>
+    <p class="error" id="cancelError" role="alert"></p>
+    <div class="actions">
+      <button type="button" id="cancelClose">返回</button>
+      <button type="submit" class="danger">取消預約</button>
+    </div>
+  </form>
+</dialog>
+
+<script>
+(function () {
+  'use strict';
+
+  var STORAGE_KEY = 'meetingRoomBookings';
+  var ROOMS = [{ id: 'A', name: '會議室 A' }, { id: 'B', name: '會議室 B' }, { id: 'C', name: '會議室 C' }];
+  var HOURS = [9, 10, 11, 12, 13, 14, 15, 16, 17]; // 09:00–18:00，共 9 格
+  var MAX_DAYS = 14;
+  var WEEKDAY_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
+
+  // ===== 日期工具（一律使用本地時間，不用 toISOString）=====
+  function pad(n) { return n < 10 ? '0' + n : '' + n; }
+  function dateKey(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function startOfDay(d) { return new Date(d.getFullYear(), d.getMonth(), d.getDate()); }
+  function addDays(d, n) { return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n); }
+  function isWeekday(d) { var w = d.getDay(); return w !== 0 && w !== 6; }
+  function nextWeekday(d) { var r = addDays(d, 1); while (!isWeekday(r)) r = addDays(r, 1); return r; }
+  function prevWeekday(d) { var r = addDays(d, -1); while (!isWeekday(r)) r = addDays(r, -1); return r; }
+  function hourLabel(h) { return pad(h) + ':00'; }
+
+  // 可瀏覽範圍：今天（若為週末則下一個平日）～ 今天 + 14 天內最後一個平日
+  function range() {
+    var today = startOfDay(new Date());
+    var first = isWeekday(today) ? today : nextWeekday(today);
+    var last = addDays(today, MAX_DAYS);
+    while (!isWeekday(last)) last = addDays(last, -1);
+    return { first: first, last: last };
+  }
+
+  // 過去時段：日期早於今天，或今天且起始整點小於目前整點
+  function isPast(date, hour) {
+    var now = new Date();
+    var today = startOfDay(now);
+    if (date < today) return true;
+    return dateKey(date) === dateKey(today) && hour < now.getHours();
+  }
+
+  // ===== 資料存取（容錯：空、壞 JSON、localStorage 不可用都退回空物件）=====
+  function load() {
+    try {
+      var raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return {};
+      var data = JSON.parse(raw);
+      return (data && typeof data === 'object' && !Array.isArray(data)) ? data : {};
+    } catch (e) {
+      return {};
+    }
+  }
+  function save(data) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  function bookingKey(date, roomId, hour) { return dateKey(date) + '|' + roomId + '|' + hour; }
+
+  // ===== 狀態與元素 =====
+  var current = range().first;
+  var grid = document.getElementById('grid');
+  var dateLabel = document.getElementById('dateLabel');
+  var prevBtn = document.getElementById('prev');
+  var nextBtn = document.getElementById('next');
+  var todayBtn = document.getElementById('today');
+  var bookDialog = document.getElementById('bookDialog');
+  var cancelDialog = document.getElementById('cancelDialog');
+  var pending = null; // 目前對話框操作的格子 { date, room, hour }
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  // ===== 渲染 =====
+  function render() {
+    var r = range();
+    var data = load();
+    dateLabel.textContent = current.getFullYear() + '/' + pad(current.getMonth() + 1) + '/' + pad(current.getDate()) +
+      '（週' + WEEKDAY_NAMES[current.getDay()] + '）';
+    prevBtn.disabled = current <= r.first;
+    nextBtn.disabled = current >= r.last;
+    todayBtn.disabled = dateKey(current) === dateKey(r.first);
+
+    grid.textContent = '';
+    var head = el('tr');
+    head.appendChild(el('th', 'room', '會議室'));
+    HOURS.forEach(function (h) { head.appendChild(el('th', '', hourLabel(h) + '–' + hourLabel(h + 1))); });
+    grid.appendChild(head);
+
+    ROOMS.forEach(function (room) {
+      var tr = el('tr');
+      tr.appendChild(el('th', 'room', room.name));
+      HOURS.forEach(function (h) {
+        var td = el('td');
+        var booking = data[bookingKey(current, room.id, h)];
+        var past = isPast(current, h);
+        var btn = el('button', 'cell');
+        btn.type = 'button';
+        if (booking && typeof booking === 'object') {
+          btn.className += ' booked';
+          btn.appendChild(el('span', 'who', String(booking.name)));
+          btn.appendChild(el('span', 'topic', String(booking.topic)));
+          btn.title = booking.name + '：' + booking.topic + '（點擊可取消）';
+          btn.addEventListener('click', function () { openCancel(room, h); });
+        } else if (past) {
+          btn.className += ' past';
+          btn.disabled = true;
+          btn.textContent = '不可預約';
+        } else {
+          btn.className += ' free';
+          btn.textContent = '可預約';
+          btn.addEventListener('click', function () { openBook(room, h); });
+        }
+        td.appendChild(btn);
+        tr.appendChild(td);
+      });
+      grid.appendChild(tr);
+    });
+  }
+
+  function describe(room, hour) {
+    return dateLabel.textContent + ' ' + room.name + ' ' + hourLabel(hour) + '–' + hourLabel(hour + 1);
+  }
+
+  // ===== 預約 =====
+  function openBook(room, hour) {
+    pending = { date: current, room: room, hour: hour };
+    document.getElementById('bookInfo').textContent = describe(room, hour);
+    document.getElementById('bookName').value = '';
+    document.getElementById('bookTopic').value = '';
+    document.getElementById('bookError').textContent = '';
+    bookDialog.showModal();
+    document.getElementById('bookName').focus();
+  }
+
+  document.getElementById('bookForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var err = document.getElementById('bookError');
+    var name = document.getElementById('bookName').value.trim();
+    var topic = document.getElementById('bookTopic').value.trim();
+    if (!name || !topic) { err.textContent = '姓名與會議主題皆為必填。'; return; }
+    var p = pending;
+    var r = range();
+    if (p.date < r.first || p.date > r.last || !isWeekday(p.date)) { err.textContent = '此日期不可預約。'; return; }
+    if (isPast(p.date, p.hour)) { err.textContent = '此時段已過，無法預約。'; return; }
+    var data = load();
+    var key = bookingKey(p.date, p.room.id, p.hour);
+    if (data[key]) { err.textContent = '此時段已被預約。'; return; }
+    data[key] = { name: name, topic: topic };
+    if (!save(data)) { err.textContent = '無法寫入瀏覽器儲存空間，預約未儲存。'; return; }
+    bookDialog.close();
+    render();
+  });
+  document.getElementById('bookCancel').addEventListener('click', function () { bookDialog.close(); });
+
+  // ===== 取消 =====
+  function openCancel(room, hour) {
+    pending = { date: current, room: room, hour: hour };
+    var b = load()[bookingKey(current, room.id, hour)];
+    document.getElementById('cancelInfo').textContent = describe(room, hour) + '｜' + b.name + '：' + b.topic;
+    document.getElementById('cancelName').value = '';
+    document.getElementById('cancelError').textContent = '';
+    cancelDialog.showModal();
+    document.getElementById('cancelName').focus();
+  }
+
+  document.getElementById('cancelForm').addEventListener('submit', function (ev) {
+    ev.preventDefault();
+    var err = document.getElementById('cancelError');
+    var name = document.getElementById('cancelName').value.trim();
+    var p = pending;
+    var data = load();
+    var key = bookingKey(p.date, p.room.id, p.hour);
+    var b = data[key];
+    if (!b) { cancelDialog.close(); render(); return; }
+    if (name !== String(b.name).trim()) { err.textContent = '姓名與預約時不符，預約已保留。'; return; }
+    delete data[key];
+    if (!save(data)) { err.textContent = '無法寫入瀏覽器儲存空間，取消未生效。'; return; }
+    cancelDialog.close();
+    render();
+  });
+  document.getElementById('cancelClose').addEventListener('click', function () { cancelDialog.close(); });
+
+  // ===== 日期切換 =====
+  prevBtn.addEventListener('click', function () { current = prevWeekday(current); render(); });
+  nextBtn.addEventListener('click', function () { current = nextWeekday(current); render(); });
+  todayBtn.addEventListener('click', function () { current = range().first; render(); });
+
+  render();
+})();
+</script>
+</body>
+</html>
