@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<title>衝突檢查測試</title>
+<style>
+  body { font-family: "Microsoft JhengHei", sans-serif; max-width: 860px; margin: 24px auto; padding: 0 16px; }
+  #summary { font-size: 20px; font-weight: bold; padding: 12px; border-radius: 6px; }
+  #summary.ok { background: #e6f4ea; color: #1e6b32; }
+  #summary.fail { background: #fce8e6; color: #a50e0e; }
+  table { border-collapse: collapse; width: 100%; margin-top: 16px; }
+  th, td { border: 1px solid #ccc; padding: 6px 10px; text-align: left; }
+  th { background: #f3f3f3; }
+  tr.bad td { background: #fff4f4; }
+</style>
+</head>
+<body>
+<h1>app.js 衝突檢查測試</h1>
+<div id="summary">執行中…</div>
+<p>基準：2026-01-05 會議室 A 已有一筆 10:00–12:00 的預約。以「新預約區間 [開始, 結束) 內任一小時被 findBooking 找到」判定為衝突。</p>
+<table>
+  <thead><tr><th>測試名稱</th><th>預期（是否衝突）</th><th>實際（是否衝突）</th><th>結果</th></tr></thead>
+  <tbody id="rows"></tbody>
+</table>
+
+<script src="app.js"></script>
+<script>
+(function () {
+  // 既有預約：2026-01-05 A 廳 10–12（hours = 2）
+  var data = { '2026-01-05|A|10': { name: '小明', topic: '週會', hours: 2 } };
+  var DATE = '2026-01-05';
+
+  // 與 index.html 相同的區間檢查方式：逐小時呼叫 findBooking
+  function hasConflict(room, start, end) {
+    for (var h = start; h < end; h++) {
+      if (findBooking(data, DATE, room, h)) return true;
+    }
+    return false;
+  }
+
+  var cases = [
+    // 一般情況
+    { name: '完全相同時段（10–12）', room: 'A', s: 10, e: 12, expect: true },
+    { name: '完全錯開的時段（14–16）', room: 'A', s: 14, e: 16, expect: false },
+    // 邊界情況
+    { name: '部分重疊：前段（9–11）', room: 'A', s: 9, e: 11, expect: true },
+    { name: '部分重疊：後段（11–13）', room: 'A', s: 11, e: 13, expect: true },
+    { name: '完全包含既有預約（9–13）', room: 'A', s: 9, e: 13, expect: true },
+    { name: '被既有預約完全包含（10–11）', room: 'A', s: 10, e: 11, expect: true },
+    { name: '緊鄰在後（12–14）應允許', room: 'A', s: 12, e: 14, expect: false },
+    { name: '緊鄰在前（8–10）應允許', room: 'A', s: 8, e: 10, expect: false },
+    { name: '不同會議室同時段（B 廳 10–12）應允許', room: 'B', s: 10, e: 12, expect: false },
+    { name: '不同日期同時段應允許', room: 'A', s: 10, e: 12, expect: false, date: '2026-01-06' }
+  ];
+
+  var tbody = document.getElementById('rows');
+  var pass = 0;
+  cases.forEach(function (c) {
+    var actual;
+    if (c.date) {
+      actual = false;
+      for (var h = c.s; h < c.e; h++) if (findBooking(data, c.date, c.room, h)) actual = true;
+    } else {
+      actual = hasConflict(c.room, c.s, c.e);
+    }
+    var ok = actual === c.expect;
+    if (ok) pass++;
+    var tr = document.createElement('tr');
+    if (!ok) tr.className = 'bad';
+    [c.name, String(c.expect), String(actual), ok ? '✅' : '❌'].forEach(function (t) {
+      var td = document.createElement('td');
+      td.textContent = t;
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+
+  var sum = document.getElementById('summary');
+  sum.textContent = '通過 ' + pass + ' 項／共 ' + cases.length + ' 項';
+  sum.className = pass === cases.length ? 'ok' : 'fail';
+})();
+</script>
+</body>
+</html>

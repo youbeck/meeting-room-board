@@ -12,13 +12,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 開發規範
 
-- 本專案為單一 HTML 檔案，檔名固定為 `index.html`；禁止拆分多檔（CSS／JS 皆內嵌），禁止引入外部框架。
+- 本專案檔案限 `index.html` + `app.js` + `test.html` 三檔，禁止再拆分其他檔案、禁止外部框架；`app.js` 以一般 `<script src>` 載入，不用 ES module。
 - 所有介面文字與程式註解使用繁體中文。
 - 每次修改後，用一句話說明改了什麼。
 
 ## 規格中的硬性限制（影響架構）
 
-- **純前端單一 HTML 檔**（HTML + CSS + JS 內嵌），無後端、無外部服務、無建置步驟；須能直接以瀏覽器開啟。
+- **純前端三檔**（index.html + app.js + test.html），無後端、無外部服務、無建置步驟；須能直接以瀏覽器開啟。
 - **資料存 localStorage**，僅限單一瀏覽器，不跨使用者／裝置同步（需在畫面或文件中說明此限制）。localStorage 被清空時頁面仍須正常開啟並顯示全空網格。
 - 無登入；以姓名識別預約者。取消時姓名須與預約時相符，這只是防誤刪，不是安全機制。
 - 預約規則：同會議室同時段不可重複；僅可預約今天起 14 天內的平日；過去時段（含今天已過的小時）不可預約。
